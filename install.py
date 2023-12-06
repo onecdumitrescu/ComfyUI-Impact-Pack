@@ -219,11 +219,11 @@ try:
             import mmdet
             from mmdet.evaluation import get_classes
         except Exception:
-            process_wrap(pip_install + ['opendatalab==0.0.9'])
+            process_wrap(pip_install + ['opendatalab==0.0.10'])
             process_wrap(pip_install + ['-U', 'openmim'])
-            process_wrap(mim_install + ['mmcv>=2.0.0rc4, <2.1.0'])
-            process_wrap(mim_install + ['mmdet==3.0.0'])
-            process_wrap(mim_install + ['mmengine==0.7.4'])
+            process_wrap(mim_install + ['mmcv==2.1.0'])
+            process_wrap(mim_install + ['mmdet==3.2.0'])
+            process_wrap(mim_install + ['mmengine==0.10.1'])
 
 
     def install():
