@@ -442,12 +442,50 @@ def workflow_to_map(workflow):
     return nodes, links
 
 
+class ImpactRemoteBoolean:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+                    "node_id": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                    "widget_name": ("STRING", {"multiline": False}),
+                    "value": ("BOOLEAN", {"default": True, "label_on": "True", "label_off": "False"}),
+                    }}
+
+    FUNCTION = "doit"
+
+    CATEGORY = "ImpactPack/Logic/_for_test"
+    RETURN_TYPES = ()
+    OUTPUT_NODE = True
+
+    def doit(self, **kwargs):
+        return {}
+
+
+class ImpactRemoteInt:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+                    "node_id": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                    "widget_name": ("STRING", {"multiline": False}),
+                    "value": ("INT", {"default": 0, "min": -0xffffffffffffffff, "max": 0xffffffffffffffff}),
+                    }}
+
+    FUNCTION = "doit"
+
+    CATEGORY = "ImpactPack/Logic/_for_test"
+    RETURN_TYPES = ()
+    OUTPUT_NODE = True
+
+    def doit(self, **kwargs):
+        return {}
+
 class ImpactControlBridge:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
                       "value": (any_typ,),
-                      "mode": ("BOOLEAN", {"default": True, "label_on": "pass", "label_off": "block"}),
+                      "mode": ("BOOLEAN", {"default": True, "label_on": "Active", "label_off": "Mute/Bypass"}),
+                      "behavior": ("BOOLEAN", {"default": True, "label_on": "Mute", "label_off": "Bypass"}),
                     },
                 "hidden": {"unique_id": "UNIQUE_ID", "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"}
                 }
@@ -459,26 +497,65 @@ class ImpactControlBridge:
     RETURN_NAMES = ("value",)
     OUTPUT_NODE = True
 
-    def doit(self, value, mode, unique_id, prompt, extra_pnginfo):
+    @classmethod
+    def IS_CHANGED(self, value, mode, behavior=True, unique_id=None, prompt=None, extra_pnginfo=None):
+        nodes, links = workflow_to_map(extra_pnginfo['workflow'])
+
+        next_nodes = []
+
+        for link in nodes[unique_id]['outputs'][0]['links']:
+            node_id = str(links[link][2])
+            impact.utils.collect_non_reroute_nodes(nodes, links, next_nodes, node_id)
+
+        return next_nodes
+
+
+    def doit(self, value, mode, behavior=True, unique_id=None, prompt=None, extra_pnginfo=None):
         global error_skip_flag
 
         nodes, links = workflow_to_map(extra_pnginfo['workflow'])
 
-        outputs = [str(links[link][2]) for link in nodes[unique_id]['outputs'][0]['links']]
+        active_nodes = []
+        mute_nodes = []
+        bypass_nodes = []
 
-        prompt_set = set(prompt.keys())
-        output_set = set(outputs)
+        for link in nodes[unique_id]['outputs'][0]['links']:
+            node_id = str(links[link][2])
+
+            next_nodes = []
+            impact.utils.collect_non_reroute_nodes(nodes, links, next_nodes, node_id)
+
+            for next_node_id in next_nodes:
+                node_mode = nodes[next_node_id]['mode']
+
+                if node_mode == 0:
+                    active_nodes.append(next_node_id)
+                elif node_mode == 2:
+                    mute_nodes.append(next_node_id)
+                elif node_mode == 4:
+                    bypass_nodes.append(next_node_id)
 
         if mode:
-            should_active_but_muted = output_set - prompt_set
-            if len(should_active_but_muted) > 0:
-                PromptServer.instance.send_sync("impact-bridge-continue", {"node_id": unique_id, 'actives': list(should_active_but_muted)})
+            # active
+            should_be_active_nodes = mute_nodes + bypass_nodes
+            if len(should_be_active_nodes) > 0:
+                PromptServer.instance.send_sync("impact-bridge-continue", {"node_id": unique_id, 'actives': list(should_be_active_nodes)})
                 error_skip_flag = True
                 raise Exception("IMPACT-PACK-SIGNAL: STOP CONTROL BRIDGE\nIf you see this message, your ComfyUI-Manager is outdated. Please update it.")
+
+        elif behavior:
+            # mute
+            should_be_mute_nodes = active_nodes + bypass_nodes
+            if len(should_be_mute_nodes) > 0:
+                PromptServer.instance.send_sync("impact-bridge-continue", {"node_id": unique_id, 'mutes': list(should_be_mute_nodes)})
+                error_skip_flag = True
+                raise Exception("IMPACT-PACK-SIGNAL: STOP CONTROL BRIDGE\nIf you see this message, your ComfyUI-Manager is outdated. Please update it.")
+
         else:
-            should_muted_but_active = prompt_set.intersection(output_set)
-            if len(should_muted_but_active) > 0:
-                PromptServer.instance.send_sync("impact-bridge-continue", {"node_id": unique_id, 'mutes': list(should_muted_but_active)})
+            # bypass
+            should_be_bypass_nodes = active_nodes + mute_nodes
+            if len(should_be_bypass_nodes) > 0:
+                PromptServer.instance.send_sync("impact-bridge-continue", {"node_id": unique_id, 'bypasses': list(should_be_bypass_nodes)})
                 error_skip_flag = True
                 raise Exception("IMPACT-PACK-SIGNAL: STOP CONTROL BRIDGE\nIf you see this message, your ComfyUI-Manager is outdated. Please update it.")
 
